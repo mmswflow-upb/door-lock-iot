@@ -7,7 +7,7 @@ const fs = require("fs");
 const Redis = require("ioredis");
 
 const app = express();
-const HTTP_PORT = process.env.PORT || 8080;
+const HTTP_PORT = process.env.PORT || 80;
 
 // Redis setup
 const redisPublisher = new Redis(process.env.REDISCLOUD_URL); // Redis publisher
