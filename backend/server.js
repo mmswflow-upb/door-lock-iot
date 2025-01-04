@@ -159,5 +159,4 @@ wss.on("connection", (ws) => {
 // Start the server
 server.listen(HTTP_PORT, () => {
   console.log(`Server running on port ${HTTP_PORT}`);
-  console.log("MONGO_URI:", process.env.MONGO_URI);
 });
