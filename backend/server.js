@@ -9,6 +9,15 @@ const Redis = require("ioredis");
 const app = express();
 const HTTP_PORT = process.env.PORT || 8080;
 
+// Function to check file existence
+function checkFileExistence(filePath) {
+  if (fs.existsSync(filePath)) {
+    console.log(`File found: ${filePath}`);
+  } else {
+    console.error(`File NOT found: ${filePath}`);
+  }
+}
+
 // Redis setup
 const redisPublisher = new Redis(process.env.REDISCLOUD_URL); // Redis publisher
 const redisSubscriber = new Redis(process.env.REDISCLOUD_URL); // Redis subscriber
@@ -158,4 +167,7 @@ wss.on("connection", (ws, req) => {
 // Start the server
 server.listen(HTTP_PORT, () => {
   console.log(`Server running on port ${HTTP_PORT}`);
+  // Check for the existence of required files
+  checkFileExistence(VALID_CARDS_FILE);
+  checkFileExistence(SCAN_HISTORY_FILE);
 });
