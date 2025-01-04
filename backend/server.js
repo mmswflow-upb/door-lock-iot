@@ -46,6 +46,8 @@ app.post("/scan", (req, res) => {
 
   const { enteredKey } = req.body;
   const validCards = JSON.parse(fs.readFileSync(VALID_CARDS_FILE)).cards;
+  console.log(`Valid cards: ${validCards}`);
+
   const isValid = validCards.includes(enteredKey);
 
   const newEntry = {
@@ -64,7 +66,11 @@ app.post("/scan", (req, res) => {
     newEntry,
   });
 
-  res.json({ success: isValid });
+  if (isValid) {
+    res.status(200);
+  } else {
+    res.status(401);
+  }
 });
 
 // Endpoint: Add new valid card

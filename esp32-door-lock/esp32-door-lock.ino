@@ -1,7 +1,7 @@
 #include <SPI.h>
 #include <MFRC522.h>
 #include <WiFi.h>
-#include <WiFiClient.h>
+#include <HTTPClient.h>
 #include "credentials.h" // Include credentials header
 
 // Define RFID pins
@@ -10,8 +10,6 @@
 
 MFRC522 rfid(SS_PIN, RST_PIN);
 MFRC522::MIFARE_Key key;
-
-WiFiClient client;
 
 void setup() {
   Serial.begin(115200);
@@ -78,35 +76,37 @@ void loop() {
 }
 
 void sendToServer(const char* cardData) {
-  // Connect to the server
-  if (client.connect(serverURL, serverPort)) {
-    Serial.println("Connected to server!");
-
-    // Prepare JSON payload
-    String jsonPayload = "{\"enteredKey\":\"" + String(cardData) + "\"}";
-
-    // Prepare HTTP POST request
-    String request = String("POST ") + scanEndpoint + " HTTP/1.1\r\n" +
-                     "Host: " + serverURL + "\r\n" +
-                     "Content-Type: application/json\r\n" +
-                     "Content-Length: " + jsonPayload.length() + "\r\n" +
-                     "\r\n" +
-                     jsonPayload;
-
-    // Send the request
-    client.print(request);
-    Serial.println("Request sent:");
-    Serial.println(request);
-
-    // Wait for response
-    while (client.connected()) {
-      String response = client.readString();
-      Serial.println("Server Response: " + response);
-      break;
-    }
-
-    client.stop();
-  } else {
-    Serial.println("Failed to connect to server.");
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi not connected.");
+    return;
   }
+
+  HTTPClient http;
+  String url = String("http://") + serverURL + scanEndpoint;
+
+  // Prepare JSON payload
+  String jsonPayload = "{\"enteredKey\":\"" + String(cardData) + "\"}";
+
+  // Start connection and send HTTP POST request
+  http.begin(url);
+  http.addHeader("Content-Type", "application/json");
+
+  Serial.print("Sending POST request to: ");
+  Serial.println(url);
+  int httpResponseCode = http.POST(jsonPayload);
+
+  // Check response
+  if (httpResponseCode > 0) {
+    Serial.print("HTTP Response code: ");
+    Serial.println(httpResponseCode);
+    String response = http.getString();
+    Serial.print("Response: ");
+    Serial.println(response);
+  } else {
+    Serial.print("Error on sending POST: ");
+    Serial.println(http.errorToString(httpResponseCode));
+  }
+
+  // End HTTP connection
+  http.end();
 }
