@@ -82,26 +82,38 @@ void sendToServer(const char* cardData) {
   }
 
   HTTPClient http;
-  String url = String("http://") + serverURL + scanEndpoint;
+  String url = String("https://") + serverURL + scanEndpoint;
 
   // Prepare JSON payload
   String jsonPayload = "{\"enteredKey\":\"" + String(cardData) + "\"}";
+
+  
 
   // Start connection and send HTTP POST request
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
 
+  // Set a custom timeout period (e.g., 10 seconds)
+  http.setTimeout(10000); // Timeout in milliseconds
+
   Serial.print("Sending POST request to: ");
   Serial.println(url);
+
   int httpResponseCode = http.POST(jsonPayload);
 
-  // Check response
+  // Check the HTTP response code
   if (httpResponseCode > 0) {
     Serial.print("HTTP Response code: ");
     Serial.println(httpResponseCode);
-    String response = http.getString();
-    Serial.print("Response: ");
-    Serial.println(response);
+
+    // Determine card validity based on the status code
+    if (httpResponseCode == 200) {
+      Serial.println("Card is VALID!");
+    } else if (httpResponseCode == 401) {
+      Serial.println("Card is INVALID!");
+    } else {
+      Serial.println("Unexpected response from server.");
+    }
   } else {
     Serial.print("Error on sending POST: ");
     Serial.println(http.errorToString(httpResponseCode));

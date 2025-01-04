@@ -67,9 +67,9 @@ app.post("/scan", (req, res) => {
   });
 
   if (isValid) {
-    res.status(200);
+    res.status(200).send("Access granted!");
   } else {
-    res.status(401);
+    res.status(401).send("Access denied!");
   }
 });
 
