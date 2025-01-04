@@ -6,7 +6,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 void main() async {
   await dotenv.load(fileName: ".env"); // Load the .env file
-  runApp(MyApp());
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
@@ -17,7 +17,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'RFID Manager',
       theme: ThemeData(primarySwatch: Colors.blue),
-      home: HomeScreen(),
+      home: const HomeScreen(),
     );
   }
 }
@@ -43,6 +43,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     connectToWebSocket();
+    fetchScanHistory(); // Initial load of scan history
   }
 
   @override
@@ -56,10 +57,8 @@ class _HomeScreenState extends State<HomeScreen> {
   void connectToWebSocket() {
     channel = WebSocketChannel.connect(Uri.parse(wsUrl));
     channel?.stream.listen(
-          (message) {
-        setState(() {
-          updates.add(jsonDecode(message));
-        });
+          (_) {
+        fetchScanHistory(); // Fetch updated scan history on notification
       },
       onError: (error) {
         print("WebSocket Error: $error");
@@ -78,12 +77,10 @@ class _HomeScreenState extends State<HomeScreen> {
         body: jsonEncode({"newKeyCode": newKeyCode}),
       );
 
-      // Use the response body as the message
       String responseMessage = response.body.isNotEmpty
           ? response.body
           : "Unexpected response from the server.";
 
-      // Display the response message in a Snackbar
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(responseMessage)),
       );
@@ -95,7 +92,26 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-
+  Future<void> fetchScanHistory() async {
+    try {
+      final response = await http.get(Uri.parse("$serverUrl/scan-history"));
+      if (response.statusCode == 200) {
+        final List<dynamic> historyData = jsonDecode(response.body);
+        setState(() {
+          updates = historyData.cast<Map<String, dynamic>>();
+        });
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Failed to fetch scan history: ${response.statusCode}")),
+        );
+      }
+    } catch (error) {
+      print("Error fetching scan history: $error");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error fetching scan history.")),
+      );
+    }
+  }
 
   Future<void> fetchValidCards() async {
     try {
@@ -117,6 +133,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
   }
+
   Future<void> deleteCard(String card) async {
     try {
       final response = await http.delete(
@@ -133,7 +150,6 @@ class _HomeScreenState extends State<HomeScreen> {
         SnackBar(content: Text(responseMessage)),
       );
 
-      // Refresh updates if necessary
       fetchValidCards();
     } catch (error) {
       print("Error deleting card: $error");
@@ -152,42 +168,38 @@ class _HomeScreenState extends State<HomeScreen> {
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return AlertDialog(
-                title: Text("Valid Cards"),
-                content: Center(child: CircularProgressIndicator()),
+                title: const Text("Valid Cards"),
+                content: const Center(child: CircularProgressIndicator()),
                 actions: [
                   TextButton(
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                    },
-                    child: Text("Close"),
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text("Close"),
                   ),
                 ],
               );
             } else if (snapshot.hasError) {
               return AlertDialog(
-                title: Text("Error"),
-                content: Text("Failed to fetch valid cards. Please try again."),
+                title: const Text("Error"),
+                content: const Text("Failed to fetch valid cards. Please try again."),
                 actions: [
                   TextButton(
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                    },
-                    child: Text("Close"),
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text("Close"),
                   ),
                 ],
               );
             } else {
               return AlertDialog(
-                title: Text("Valid Cards"),
+                title: const Text("Valid Cards"),
                 content: validCards.isEmpty
-                    ? Text("No valid cards found.")
+                    ? const Text("No valid cards found.")
                     : SingleChildScrollView(
                   child: ListBody(
                     children: validCards.map((card) {
                       return ListTile(
                         title: Text(card),
                         trailing: IconButton(
-                          icon: Icon(Icons.delete, color: Colors.red),
+                          icon: const Icon(Icons.delete, color: Colors.red),
                           onPressed: () {
                             deleteCard(card);
                             Navigator.of(context).pop(); // Close the modal
@@ -199,10 +211,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 actions: [
                   TextButton(
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                    },
-                    child: Text("Close"),
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text("Close"),
                   ),
                 ],
               );
@@ -213,11 +223,69 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void showScanHistoryModal(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            void updateHistory() async {
+              try {
+                final response = await http.get(Uri.parse("$serverUrl/scan-history"));
+                if (response.statusCode == 200) {
+                  final List<dynamic> historyData = jsonDecode(response.body);
+                  setState(() {
+                    updates = historyData.cast<Map<String, dynamic>>();
+                  });
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Failed to fetch scan history: ${response.statusCode}")),
+                  );
+                }
+              } catch (error) {
+                print("Error fetching scan history: $error");
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("Error fetching scan history.")),
+                );
+              }
+            }
+
+            // Fetch history initially
+            updateHistory();
+
+            return AlertDialog(
+              title: const Text("Scan History"),
+              content: updates.isEmpty
+                  ? const Center(child: Text("No scan history found."))
+                  : SingleChildScrollView(
+                child: ListBody(
+                  children: updates.map((update) {
+                    return ListTile(
+                      title: Text("Key: ${update['enteredKey']}"),
+                      subtitle: Text(
+                          "Success: ${update['success']} | Time: ${update['time']}"),
+                    );
+                  }).toList(),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text("Close"),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text("RFID Manager")),
+      appBar: AppBar(title: const Text("RFID Manager")),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -228,12 +296,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: TextField(
                     focusNode: cardFocusNode,
                     controller: cardController,
-                    decoration: InputDecoration(labelText: "Key Code"),
+                    decoration: const InputDecoration(labelText: "Key Code"),
                   ),
                 ),
-                SizedBox(width: 10),
+                const SizedBox(width: 10),
                 ElevatedButton(
-                  child: Text("Add Key Code"),
+                  child: const Text("Add Key Code"),
                   onPressed: () {
                     if (cardController.text.isNotEmpty) {
                       addCard(cardController.text);
@@ -244,30 +312,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ],
             ),
-            SizedBox(height: 20),
+            const SizedBox(height: 20),
             ElevatedButton(
               onPressed: () => showValidCardsModal(context),
-              child: Text("Show Valid Cards"),
+              child: const Text("Show Valid Cards"),
             ),
-            SizedBox(height: 20),
-            Expanded(
-              child: updates.isEmpty
-                  ? Center(child: Text("No updates yet."))
-                  : ListView.builder(
-                itemCount: updates.length,
-                itemBuilder: (context, index) {
-                  final update = updates[index];
-                  return ListTile(
-                    title: Text(update['file']),
-                    subtitle: Text(
-                      update.containsKey('newEntry')
-                          ? "UID: ${update['newEntry']['enteredKey']} - Success: ${update['newEntry']['success']}"
-                          : "Action: ${update['action']} - Card: ${update['card']}",
-                    ),
-                    trailing: Text(update['time'] ?? ""),
-                  );
-                },
-              ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: () => showScanHistoryModal(context),
+              child: const Text("Show Scan History"),
             ),
           ],
         ),
