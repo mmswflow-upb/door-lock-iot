@@ -4,4 +4,4 @@ const validCardSchema = new mongoose.Schema({
   card: { type: String, required: true, unique: true },
 });
 
-module.exports = mongoose.model("ValidCard", validCardSchema);
+module.exports = mongoose.model("ValidCard", validCardSchema, "ValidCards");

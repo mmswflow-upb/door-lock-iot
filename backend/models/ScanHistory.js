@@ -6,4 +6,4 @@ const scanHistorySchema = new mongoose.Schema({
   time: { type: Date, default: Date.now },
 });
 
-module.exports = mongoose.model("ScanHistory", scanHistorySchema);
+module.exports = mongoose.model("Scan", scanHistorySchema, "Scans");
