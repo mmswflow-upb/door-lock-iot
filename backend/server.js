@@ -132,7 +132,7 @@ app.delete("/delete-card", async (req, res) => {
 // Endpoint: Get scan history
 app.get("/scan-history", async (req, res) => {
   try {
-    const history = await Scan.find().sort({ time: -1 }).limit(50);
+    const history = await Scan.find().sort({ time: -1 }).limit(10); // last 50 scans
     res.status(200).json(history);
   } catch (error) {
     console.error("Error retrieving scan history:", error);
