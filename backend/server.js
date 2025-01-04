@@ -45,7 +45,9 @@ app.post("/scan", (req, res) => {
   console.log("Scan request received!");
 
   const { enteredKey } = req.body;
-  const validCards = JSON.parse(fs.readFileSync(VALID_CARDS_FILE)).cards;
+  const validCards = JSON.parse(
+    fs.readFileSync(VALID_CARDS_FILE, "utf-8")
+  ).cards;
   console.log(`Valid cards: ${validCards}`);
 
   const isValid = validCards.includes(enteredKey);
