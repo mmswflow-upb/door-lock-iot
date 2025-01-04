@@ -7,7 +7,7 @@ const fs = require("fs");
 const Redis = require("ioredis");
 
 const app = express();
-const HTTP_PORT = process.env.PORT || 80;
+const HTTP_PORT = process.env.PORT || 8080;
 
 // Redis setup
 const redisPublisher = new Redis(process.env.REDISCLOUD_URL); // Redis publisher
@@ -42,6 +42,8 @@ const publishFileChange = (message) => {
 
 // Endpoint: Handle RFID scans
 app.post("/scan", (req, res) => {
+  console.log("Scan request received!");
+
   const { enteredKey } = req.body;
   const validCards = JSON.parse(fs.readFileSync(VALID_CARDS_FILE)).cards;
   const isValid = validCards.includes(enteredKey);
@@ -67,6 +69,8 @@ app.post("/scan", (req, res) => {
 
 // Endpoint: Add new valid card
 app.post("/add-card", (req, res) => {
+  console.log("Add card request received!");
+
   const { newCard } = req.body;
   const validCards = JSON.parse(fs.readFileSync(VALID_CARDS_FILE)).cards;
 
