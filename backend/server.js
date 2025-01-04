@@ -49,38 +49,55 @@ const publishFileChange = (message) => {
   redisPublisher.publish("file-change", JSON.stringify(message));
 };
 
-// Endpoint: Handle RFID scans
 app.post("/scan", (req, res) => {
   console.log("Scan request received!");
 
-  const { enteredKey } = req.body;
-  const validCards = JSON.parse(
-    fs.readFileSync(VALID_CARDS_FILE, "utf-8")
-  ).cards;
-  console.log(`Valid cards: ${validCards}`);
+  try {
+    // Read and log file contents
+    const fileContent = fs.readFileSync(VALID_CARDS_FILE, "utf-8");
+    console.log(`Raw file content: ${fileContent}`);
 
-  const isValid = validCards.includes(enteredKey);
+    // Parse the file
+    const parsedData = JSON.parse(fileContent);
+    console.log(`Parsed data: ${JSON.stringify(parsedData)}`);
 
-  const newEntry = {
-    enteredKey,
-    success: isValid,
-    time: new Date().toISOString(),
-  };
+    // Ensure "cards" is an array
+    if (!Array.isArray(parsedData.cards)) {
+      console.error(`"cards" is not an array in ${VALID_CARDS_FILE}`);
+      return res.status(500).send("Invalid file structure for valid cards.");
+    }
 
-  const scanHistory = JSON.parse(fs.readFileSync(SCAN_HISTORY_FILE));
-  scanHistory.push(newEntry);
-  fs.writeFileSync(SCAN_HISTORY_FILE, JSON.stringify(scanHistory, null, 2));
+    const validCards = parsedData.cards;
+    console.log(`Valid cards: ${validCards}`);
 
-  // Publish to Redis
-  publishFileChange({
-    file: "scan-history.json",
-    newEntry,
-  });
+    // Process enteredKey
+    const { enteredKey } = req.body;
+    const isValid = validCards.includes(enteredKey);
 
-  if (isValid) {
-    res.status(200).send("Access granted!");
-  } else {
-    res.status(401).send("Access denied!");
+    const newEntry = {
+      enteredKey,
+      success: isValid,
+      time: new Date().toISOString(),
+    };
+
+    const scanHistory = JSON.parse(fs.readFileSync(SCAN_HISTORY_FILE));
+    scanHistory.push(newEntry);
+    fs.writeFileSync(SCAN_HISTORY_FILE, JSON.stringify(scanHistory, null, 2));
+
+    // Publish to Redis
+    publishFileChange({
+      file: "scan-history.json",
+      newEntry,
+    });
+
+    if (isValid) {
+      res.status(200).send("Access granted!");
+    } else {
+      res.status(401).send("Access denied!");
+    }
+  } catch (error) {
+    console.error("Error handling scan request:", error);
+    res.status(500).send("Internal server error.");
   }
 });
 
