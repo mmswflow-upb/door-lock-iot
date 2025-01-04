@@ -7,6 +7,7 @@
 // Define RFID pins
 #define RST_PIN 22
 #define SS_PIN 21
+#define BUZZER_PIN 4 // GPIO4 for the passive buzzer
 
 MFRC522 rfid(SS_PIN, RST_PIN);
 MFRC522::MIFARE_Key key;
@@ -21,7 +22,15 @@ void setup() {
   for (byte i = 0; i < 6; i++) {
     key.keyByte[i] = 0xFF;
   }
+  
 
+  // Attach the buzzer pin to a PWM channel
+  if (!ledcAttachChannel(BUZZER_PIN, 2000, 8, 0)) {
+    Serial.println("Failed to attach buzzer pin to LEDC channel");
+    while (true); // Halt execution if setup fails
+  }
+  
+  Serial.println("LEDC setup successful for buzzer!");
   // Connect to WiFi
   WiFi.begin(ssid, password);
   Serial.println("Connecting to WiFi...");
@@ -87,17 +96,12 @@ void sendToServer(const char* cardData) {
   // Prepare JSON payload
   String jsonPayload = "{\"enteredKey\":\"" + String(cardData) + "\"}";
 
-  
-
   // Start connection and send HTTP POST request
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
 
   // Set a custom timeout period (e.g., 10 seconds)
   http.setTimeout(10000); // Timeout in milliseconds
-
-  Serial.print("Sending POST request to: ");
-  Serial.println(url);
 
   int httpResponseCode = http.POST(jsonPayload);
 
@@ -109,8 +113,10 @@ void sendToServer(const char* cardData) {
     // Determine card validity based on the status code
     if (httpResponseCode == 200) {
       Serial.println("Card is VALID!");
+      playBuzzerSound(true); // Play a short "bip" sound for a valid card
     } else if (httpResponseCode == 401) {
       Serial.println("Card is INVALID!");
+      playBuzzerSound(false); // Play a long "beeeep" sound for an invalid card
     } else {
       Serial.println("Unexpected response from server.");
     }
@@ -121,4 +127,19 @@ void sendToServer(const char* cardData) {
 
   // End HTTP connection
   http.end();
+}
+
+// Function to play the buzzer sound
+void playBuzzerSound(bool isValid) {
+  if (isValid) {
+    Serial.println("Playing valid card sound...");
+    analogWrite(BUZZER_PIN, 192);    // Set duty cycle (75%)
+    delay(100);                      // Short beep duration
+    analogWrite(BUZZER_PIN, 0);      // Turn off the buzzer
+  } else {
+    Serial.println("Playing invalid card sound...");
+    analogWrite(BUZZER_PIN, 128);    // Set duty cycle (50%)
+    delay(1000);                     // Long beep duration
+    analogWrite(BUZZER_PIN, 0);      // Turn off the buzzer
+  }
 }
