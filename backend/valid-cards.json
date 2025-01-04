@@ -1,7 +1,5 @@
 {
-    "cards": [
-      "WrongKey",
-      "WrongKeyTwo"
-    ]
-  }
+  "cards": ["CARD1", "CARD2", "CARD3"]
+}
+
   
