@@ -3,24 +3,19 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const http = require("http");
 const WebSocket = require("ws");
-const fs = require("fs");
+const mongoose = require("mongoose");
 const Redis = require("ioredis");
+
+// Import Mongoose models
+const ValidCard = require("./models/ValidCard");
+const ScanHistory = require("./models/ScanHistory");
 
 const app = express();
 const HTTP_PORT = process.env.PORT || 8080;
 
-// Function to check file existence
-function checkFileExistence(filePath) {
-  if (fs.existsSync(filePath)) {
-    console.log(`File found: ${filePath}`);
-  } else {
-    console.error(`File NOT found: ${filePath}`);
-  }
-}
-
 // Redis setup
-const redisPublisher = new Redis(process.env.REDISCLOUD_URL); // Redis publisher
-const redisSubscriber = new Redis(process.env.REDISCLOUD_URL); // Redis subscriber
+const redisPublisher = new Redis(process.env.REDISCLOUD_URL);
+const redisSubscriber = new Redis(process.env.REDISCLOUD_URL);
 
 redisPublisher.on("error", (err) => {
   console.error("Redis Publisher Error:", err);
@@ -29,67 +24,44 @@ redisSubscriber.on("error", (err) => {
   console.error("Redis Subscriber Error:", err);
 });
 
-// File paths
-const VALID_CARDS_FILE = "valid-cards.json";
-const SCAN_HISTORY_FILE = "scan-history.json";
-
 // Middleware
 app.use(bodyParser.json());
 
-// Initialize JSON files
-if (!fs.existsSync(VALID_CARDS_FILE)) {
-  fs.writeFileSync(VALID_CARDS_FILE, JSON.stringify({ cards: [] }, null, 2));
-}
-if (!fs.existsSync(SCAN_HISTORY_FILE)) {
-  fs.writeFileSync(SCAN_HISTORY_FILE, JSON.stringify([], null, 2));
-}
+// Connect to MongoDB
+mongoose
+  .connect(process.env.MONGO_URI)
+  .then(() => console.log("Connected to MongoDB"))
+  .catch((err) => console.error("MongoDB connection error:", err));
 
-// Function to publish file change announcements
+// Function to publish file changes
 const publishFileChange = (message) => {
   redisPublisher.publish("file-change", JSON.stringify(message));
 };
 
-app.post("/scan", (req, res) => {
+// Endpoint: Scan a card
+app.post("/scan", async (req, res) => {
   console.log("Scan request received!");
 
   try {
-    // Read and log file contents
-    const fileContent = fs.readFileSync(VALID_CARDS_FILE, "utf-8");
-    console.log(`Raw file content: ${fileContent}`);
-
-    // Parse the file
-    const parsedData = JSON.parse(fileContent);
-    console.log(`Parsed data: ${JSON.stringify(parsedData)}`);
-
-    // Ensure "cards" is an array
-    if (!Array.isArray(parsedData.cards)) {
-      console.error(`"cards" is not an array in ${VALID_CARDS_FILE}`);
-      return res.status(500).send("Invalid file structure for valid cards.");
-    }
-
-    const validCards = parsedData.cards;
-    console.log(`Valid cards: ${validCards}`);
-
-    // Process enteredKey
     const { enteredKey } = req.body;
-    const isValid = validCards.includes(enteredKey);
 
-    const newEntry = {
+    // Check if the card is valid
+    const cardExists = await ValidCard.findOne({ card: enteredKey });
+    const isValid = !!cardExists;
+
+    // Log the scan in the database
+    const newEntry = await ScanHistory.create({
       enteredKey,
       success: isValid,
-      time: new Date().toISOString(),
-    };
-
-    const scanHistory = JSON.parse(fs.readFileSync(SCAN_HISTORY_FILE));
-    scanHistory.push(newEntry);
-    fs.writeFileSync(SCAN_HISTORY_FILE, JSON.stringify(scanHistory, null, 2));
+    });
 
     // Publish to Redis
     publishFileChange({
-      file: "scan-history.json",
+      event: "new-scan",
       newEntry,
     });
 
+    // Respond to the client
     if (isValid) {
       res.status(200).send("Access granted!");
     } else {
@@ -101,30 +73,43 @@ app.post("/scan", (req, res) => {
   }
 });
 
-// Endpoint: Add new valid card
-app.post("/add-card", (req, res) => {
+// Endpoint: Add a new valid card
+app.post("/add-card", async (req, res) => {
   console.log("Add card request received!");
 
-  const { newCard } = req.body;
-  const validCards = JSON.parse(fs.readFileSync(VALID_CARDS_FILE)).cards;
+  const { card } = req.body;
+  if (!card) {
+    return res.status(400).send("Card is required.");
+  }
 
-  if (!validCards.includes(newCard)) {
-    validCards.push(newCard);
-    fs.writeFileSync(
-      VALID_CARDS_FILE,
-      JSON.stringify({ cards: validCards }, null, 2)
-    );
+  try {
+    const newCard = await ValidCard.create({ card });
 
     // Publish to Redis
     publishFileChange({
-      file: "valid-cards.json",
-      action: "add-card",
+      event: "add-card",
       card: newCard,
     });
 
-    res.json({ message: "Card added successfully!" });
-  } else {
-    res.json({ message: "Card already exists!" });
+    res.status(200).send("Card added successfully!");
+  } catch (error) {
+    if (error.code === 11000) {
+      res.status(400).send("Card already exists.");
+    } else {
+      console.error("Error adding card:", error);
+      res.status(500).send("Internal server error.");
+    }
+  }
+});
+
+// Endpoint: Get scan history
+app.get("/scan-history", async (req, res) => {
+  try {
+    const history = await ScanHistory.find().sort({ time: -1 }).limit(50);
+    res.status(200).json(history);
+  } catch (error) {
+    console.error("Error retrieving scan history:", error);
+    res.status(500).send("Internal server error.");
   }
 });
 
@@ -132,8 +117,7 @@ app.post("/add-card", (req, res) => {
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// WebSocket connection handling
-wss.on("connection", (ws, req) => {
+wss.on("connection", (ws) => {
   console.log("WebSocket client connected!");
 
   // Subscribe to Redis channel
@@ -149,32 +133,23 @@ wss.on("connection", (ws, req) => {
   // Handle Redis messages
   redisSubscriber.on("message", (channel, message) => {
     if (channel === "file-change" && ws.readyState === WebSocket.OPEN) {
-      ws.send(message); // Send file change message to the WebSocket client
+      ws.send(message);
     }
   });
 
-  // Pinging mechanism to keep the connection alive
+  // Pinging mechanism
   const pingInterval = setInterval(() => {
     if (ws.readyState === WebSocket.OPEN) {
-      ws.ping(); // Send ping to the client
+      ws.ping();
     }
-  }, 25000); // Ping every 25 seconds (Heroku's timeout is 55 seconds)
+  }, 25000);
 
-  // Handle WebSocket disconnection
   ws.on("close", () => {
     console.log("WebSocket client disconnected.");
-    clearInterval(pingInterval); // Clear the ping interval
-
-    redisSubscriber.unsubscribe("file-change", (err) => {
-      if (err) {
-        console.error("Failed to unsubscribe from file-change channel:", err);
-      } else {
-        console.log("Client unsubscribed from file-change channel.");
-      }
-    });
+    clearInterval(pingInterval);
+    redisSubscriber.unsubscribe("file-change");
   });
 
-  // Handle errors and unexpected disconnections
   ws.on("error", (error) => {
     console.error("WebSocket error:", error);
     ws.terminate();
@@ -184,7 +159,5 @@ wss.on("connection", (ws, req) => {
 // Start the server
 server.listen(HTTP_PORT, () => {
   console.log(`Server running on port ${HTTP_PORT}`);
-  // Check for the existence of required files
-  checkFileExistence(VALID_CARDS_FILE);
-  checkFileExistence(SCAN_HISTORY_FILE);
+  console.log("MONGO_URI:", process.env.MONGO_URI);
 });
