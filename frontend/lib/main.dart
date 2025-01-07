@@ -119,7 +119,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (response.statusCode == 200) {
         final List<dynamic> cardData = jsonDecode(response.body);
         setState(() {
-          validCards = cardData.map((card) => card['card'] as String).toList();
+          validCards = List<String>.from(cardData); // Directly assign the flat list
         });
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -133,6 +133,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
   }
+
 
   Future<void> deleteCard(String card) async {
     try {
