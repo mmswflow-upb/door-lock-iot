@@ -3,15 +3,7 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const http = require("http");
 const WebSocket = require("ws");
-const mongoose = require("mongoose");
 const Redis = require("ioredis");
-
-// Import Mongoose models
-const ValidCard = require("./models/ValidCard");
-const Scan = require("./models/ScanHistory");
-
-const app = express();
-const HTTP_PORT = process.env.PORT || 8080;
 
 // Redis setup
 const redisPublisher = new Redis(process.env.REDISCLOUD_URL);
@@ -24,14 +16,11 @@ redisSubscriber.on("error", (err) => {
   console.error("Redis Subscriber Error:", err);
 });
 
+const app = express();
+const HTTP_PORT = process.env.PORT || 8080;
+
 // Middleware
 app.use(bodyParser.json());
-
-// Connect to MongoDB
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => console.log("Connected to MongoDB"))
-  .catch((err) => console.error("MongoDB connection error:", err));
 
 // Function to publish file changes
 const publishDBChange = (message) => {
@@ -42,33 +31,32 @@ const publishDBChange = (message) => {
 app.post("/scan", async (req, res) => {
   console.log("Scan request received!");
 
+  const { enteredKey } = req.body;
+
   try {
-    const { enteredKey } = req.body;
+    const validCards = await redisPublisher.smembers("validCards");
+    const isValid = validCards.includes(enteredKey);
 
-    // Check if the card is valid
-    const cardExists = await ValidCard.findOne({ card: enteredKey });
-    const isValid = !!cardExists;
-
-    // Log the scan in the database
-    const newEntry = await Scan.create({
+    // Log the scan in Redis history
+    const newEntry = {
       enteredKey,
       success: isValid,
-    });
+      time: new Date().toISOString(),
+    };
 
-    // Publish to Redis
+    await redisPublisher.lpush("scanHistory", JSON.stringify(newEntry)); // Add scan to history
+    await redisPublisher.ltrim("scanHistory", 0, 49); // Limit history to 50 entries
+
     publishDBChange({
       event: "new-scan",
       newEntry,
     });
 
-    // Respond to the client
-    if (isValid) {
-      res.status(200).send("Access granted!");
-    } else {
-      res.status(401).send("Access denied!");
-    }
+    res
+      .status(isValid ? 200 : 401)
+      .send(isValid ? "Access granted!" : "Access denied!");
   } catch (error) {
-    console.error("Error handling scan request:", error);
+    console.error("Error processing scan:", error);
     res.status(500).send("Internal server error.");
   }
 });
@@ -79,28 +67,26 @@ app.post("/add-card", async (req, res) => {
   if (!newKeyCode) {
     return res.status(400).send("Card is required.");
   }
-  console.log(`Add card request received: ${newKeyCode}`);
 
   try {
-    const newCard = await ValidCard.create({ card: newKeyCode });
+    const exists = await redisPublisher.sismember("validCards", newKeyCode);
+    if (exists) {
+      return res.status(400).send("Card already exists.");
+    }
 
-    console.error("Card added successfully:", newKeyCode);
+    await redisPublisher.sadd("validCards", newKeyCode); // Add the card to the Redis set
+    console.log("Card added successfully:", newKeyCode);
     res.status(200).send("Card added successfully!");
   } catch (error) {
-    if (error.code === 11000) {
-      console.error("Card already exists:", newKeyCode);
-      res.status(400).send("Card already exists.");
-    } else {
-      console.error("Error adding card:", error);
-      res.status(500).send("Internal server error.");
-    }
+    console.error("Error adding card:", error);
+    res.status(500).send("Internal server error.");
   }
 });
 
 // Fetch all valid cards
 app.get("/valid-cards", async (req, res) => {
   try {
-    const validCards = await ValidCard.find({});
+    const validCards = await redisPublisher.smembers("validCards"); // Get all cards from the Redis set
     res.status(200).json(validCards);
   } catch (error) {
     console.error("Error fetching valid cards:", error);
@@ -108,17 +94,16 @@ app.get("/valid-cards", async (req, res) => {
   }
 });
 
+// Delete a valid card
 app.delete("/delete-card", async (req, res) => {
   const { card } = req.body;
-
   if (!card) {
     return res.status(400).send("Card is required.");
   }
 
   try {
-    const result = await ValidCard.findOneAndDelete({ card });
-
-    if (result) {
+    const removed = await redisPublisher.srem("validCards", card); // Remove the card from the Redis set
+    if (removed) {
       res.status(200).send(`Card '${card}' deleted successfully.`);
     } else {
       res.status(404).send("Card not found.");
@@ -132,10 +117,11 @@ app.delete("/delete-card", async (req, res) => {
 // Endpoint: Get scan history
 app.get("/scan-history", async (req, res) => {
   try {
-    const history = await Scan.find().sort({ time: -1 }).limit(10); // last 50 scans
-    res.status(200).json(history);
+    const history = await redisPublisher.lrange("scanHistory", 0, 49); // Fetch the last 50 scans
+    const parsedHistory = history.map((entry) => JSON.parse(entry));
+    res.status(200).json(parsedHistory);
   } catch (error) {
-    console.error("Error retrieving scan history:", error);
+    console.error("Error fetching scan history:", error);
     res.status(500).send("Internal server error.");
   }
 });
